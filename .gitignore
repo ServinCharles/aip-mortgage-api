@@ -1,0 +1,14 @@
+bin/
+obj/
+TestResults/
+coverage/
+.vs/
+*.user
+
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfvars
+
+deploy/overlays/
+.DS_Store
