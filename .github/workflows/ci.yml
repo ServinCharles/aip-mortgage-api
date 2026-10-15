@@ -1,0 +1,57 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+    branches: [main]
+
+jobs:
+  build-test:
+    name: Build and unit test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+      - name: Unit and endpoint tests with coverage
+        run: dotnet test tests/AipApi.Tests --collect:"XPlat Code Coverage" --results-directory TestResults --logger trx
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: unit-test-results
+          path: TestResults/
+
+  image:
+    name: Docker images (runtime + coverage)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build runtime image
+        run: docker build -t aip-api:ci .
+      - name: Build coverage image
+        run: docker build --target coverage -t aip-api:coverage .
+      - name: Smoke the runtime image
+        run: |
+          docker run -d --name aip-api -p 8080:8080 aip-api:ci
+          for attempt in $(seq 1 30); do
+            curl --silent --fail http://localhost:8080/health && exit 0
+            sleep 1
+          done
+          docker logs aip-api
+          exit 1
+
+  infra:
+    name: Terraform and Kubernetes manifests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+      - name: Terraform fmt and validate
+        working-directory: infra/terraform
+        run: |
+          terraform fmt -check -recursive
+          terraform init -backend=false
+          terraform validate
+      - name: Render Kubernetes manifests
+        run: kubectl kustomize deploy/k8s > /dev/null
