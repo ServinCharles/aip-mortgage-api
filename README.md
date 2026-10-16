@@ -66,6 +66,38 @@ terraform -chdir=infra/terraform apply
 
 Check it with `kubectl -n aip-mortgage get pods,svc`.
 
+## Jenkins build pipeline
+
+`Jenkinsfile` builds the service once, tests and scans it, then publishes one image tagged with the git commit (e.g. `aip-api:3f2a1c9`). The deploy pipeline later promotes that exact image.
+
+```
+Checkout → Build & Unit Test → SonarQube → Snyk → Docker Build → Image Scan → Push to ECR
+```
+
+| Stage | What it does | Fails the build when |
+| --- | --- | --- |
+| Build & Unit Test | `dotnet test` in the .NET SDK container, JUnit results + Cobertura/OpenCover coverage | any test fails |
+| SonarQube | .NET scanner with coverage, waits for the quality gate | quality gate fails |
+| Snyk | dependency (SCA) scan of the project | a high or critical vulnerability is found |
+| Docker Build | runtime image, cross-compiled for `PLATFORM` (default `linux/amd64` for EKS) | the image doesn't build |
+| Image Scan | Trivy (default) or Twistlock `twistcli`, JSON report archived | a fixable HIGH/CRITICAL CVE is found |
+| Push to ECR | pushes the scanned image, archives `ecr-image.properties` for the deploy pipeline | the push fails |
+
+Every tool runs in a Docker container, so the Jenkins machine only needs Docker. SonarQube, Snyk and the ECR push are off by default; switch them on with **Build with Parameters** once their credentials exist.
+
+### Jenkins setup
+
+1. **New Item → Pipeline**, then *Pipeline script from SCM* → Git → `https://github.com/ServinCharles/aip-mortgage-api.git`, branch `*/main`, script path `Jenkinsfile`.
+2. Plugins: Pipeline, Git, Credentials Binding, JUnit (all in the suggested set).
+3. Credentials (*Manage Jenkins → Credentials*), only for the stages you switch on:
+
+| ID | Type | Used by |
+| --- | --- | --- |
+| `sonar-token` | Secret text | SonarQube / SonarCloud token |
+| `snyk-token` | Secret text | Snyk API token |
+| `aws-credentials` | Username with password (access key ID / secret key) | ECR push |
+| `prisma-cloud` | Username with password | Twistlock scan |
+
 ## Cost and teardown
 
 Left running, the environment costs roughly **$180 to $190 a month** (EKS control plane about $73, two t3.medium nodes about $60, NAT gateway about $35, load balancer about $18). Remove everything after a demo:
