@@ -2,15 +2,13 @@
 
 .NET 8 microservice for a mortgage **Agreement in Principle (AIP)**: it decides whether an applicant is Accepted, Referred or Declined, and calculates borrowing power. It runs on Amazon EKS alongside the [aip-webapp](https://github.com/ServinCharles/aip-webapp) React frontend, and is tested end to end by the [Agentic-qa-demo](https://github.com/ServinCharles/Agentic-qa-demo) framework.
 
-This repo also owns the shared AWS infrastructure (VPC, EKS cluster, ECR repositories) in `infra/terraform`.
+This repo holds the code and the Jenkins **build** pipeline. Infrastructure and deployment live in [aip-deployment-pipeline](https://github.com/ServinCharles/aip-deployment-pipeline).
 
 ```
  Agentic-qa-demo (WDIO BDD / API / a11y / perf)
           │  BASE_URL=http://<load balancer>
           ▼
- ┌──────────────── EKS namespace: aip-mortgage ────────────────┐
- │  aip-webapp (React + nginx) ──/api/*──▶ aip-api (.NET, this repo) │
- └──────────────────────────────────────────────────────────────┘
+ sit-01-dip: aip-webapp (React + nginx) ──/api/*──▶ sit-01-api: aip-api (.NET, this repo)
 ```
 
 ## API
@@ -49,29 +47,16 @@ docker run -d --name aip-api -p 8080:8080 -v "$PWD/coverage:/coverage" aip-api:c
 docker stop aip-api        # writes coverage/aip-api.e2e.cobertura.xml
 ```
 
-## Deploy to AWS
+## Deployment
 
-Prerequisites: AWS CLI v2 (logged in), Terraform 1.6+, kubectl, Docker.
-
-```bash
-# 1. Infrastructure, once (about 15 minutes; London region by default)
-terraform -chdir=infra/terraform init
-terraform -chdir=infra/terraform apply
-
-# 2. This service (deploy it before aip-webapp)
-./scripts/deploy.sh
-
-# 3. Then run ./scripts/deploy.sh in the aip-webapp repo, which prints the public URL
-```
-
-Check it with `kubectl -n aip-mortgage get pods,svc`.
+Deployment lives in [aip-deployment-pipeline](https://github.com/ServinCharles/aip-deployment-pipeline): the AWS infrastructure (Terraform), the Kubernetes config for sit-01 and sit-02, and the Jenkins **AIP Deployment Pipeline**. This service runs in the `<env>-api` namespace (e.g. `sit-01-api`), and only the web app can reach it.
 
 ## Jenkins build pipeline
 
-`Jenkinsfile` builds the service once, tests and scans it, then publishes one image tagged with the git commit (e.g. `aip-api:3f2a1c9`). The deploy pipeline later promotes that exact image.
+`Jenkinsfile` builds the service once, tests and scans it, then publishes one image tagged with the git commit (e.g. `aip-api:3f2a1c9`). The AIP Deployment Pipeline then promotes that exact image; set `TRIGGER_DEPLOY` to deploy it to sit-01 automatically after a green build.
 
 ```
-Checkout → Build & Unit Test → SonarQube → Snyk → Docker Build → Image Scan → Push to ECR
+Checkout → Build & Unit Test → SonarQube → Snyk → Docker Build → Image Scan → Push to ECR → Trigger Deploy
 ```
 
 | Stage | What it does | Fails the build when |
@@ -97,13 +82,3 @@ Every tool runs in a Docker container, so the Jenkins machine only needs Docker.
 | `snyk-token` | Secret text | Snyk API token |
 | `aws-credentials` | Username with password (access key ID / secret key) | ECR push |
 | `prisma-cloud` | Username with password | Twistlock scan |
-
-## Cost and teardown
-
-Left running, the environment costs roughly **$180 to $190 a month** (EKS control plane about $73, two t3.medium nodes about $60, NAT gateway about $35, load balancer about $18). Remove everything after a demo:
-
-```bash
-./scripts/teardown.sh
-```
-
-It deletes the `aip-mortgage` namespace first (so the load balancer is removed), then runs `terraform destroy`.

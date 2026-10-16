@@ -1,9 +1,9 @@
 // Build pipeline for aip-api (.NET 8)
 //
 // Build once, test, scan, then publish ONE immutable image tagged with the git commit.
-// The deploy pipeline later promotes that exact image through sit-01 -> sit-02.
+// The AIP Deployment Pipeline (aip-deployment-pipeline repo) promotes that exact image through sit-01 -> sit-02.
 //
-//   Checkout -> Build & Unit Test -> SonarQube -> Snyk -> Docker Build -> Image Scan -> Push to ECR
+//   Checkout -> Build & Unit Test -> SonarQube -> Snyk -> Docker Build -> Image Scan -> Push to ECR -> Trigger Deploy
 //
 // Every tool runs in a Docker container, so the Jenkins machine only needs Docker.
 // SonarQube, Snyk and ECR push are switched off by default until their credentials are set up.
@@ -27,6 +27,8 @@ pipeline {
         string(name: 'PLATFORM', defaultValue: 'linux/amd64', description: 'Image platform: linux/amd64 for EKS, linux/arm64 for local Kubernetes on Apple Silicon')
         booleanParam(name: 'PUSH_TO_ECR', defaultValue: false, description: 'Push the scanned image to Amazon ECR (needs the aws-credentials credential)')
         string(name: 'AWS_REGION', defaultValue: 'eu-west-2', description: 'AWS region of the ECR repository')
+        booleanParam(name: 'TRIGGER_DEPLOY', defaultValue: false, description: 'After a successful build, deploy this image to sit-01 with the AIP Deployment Pipeline')
+        string(name: 'DEPLOY_JOB', defaultValue: 'aip-deployment-pipeline', description: 'Jenkins job name of the AIP Deployment Pipeline')
     }
 
     environment {
@@ -154,6 +156,20 @@ pipeline {
                 withCredentials([usernamePassword(credentialsId: 'aws-credentials', usernameVariable: 'AWS_ACCESS_KEY_ID', passwordVariable: 'AWS_SECRET_ACCESS_KEY')]) {
                     pushToEcr()
                 }
+            }
+        }
+
+        stage('Trigger Deploy') {
+            when { expression { params.TRIGGER_DEPLOY } }
+            steps {
+                // Hands the scanned image to the AIP Deployment Pipeline (aip-deployment-pipeline repo).
+                // EKS when the image was pushed to ECR, otherwise a local cluster using the local image.
+                build job: params.DEPLOY_JOB, wait: false, parameters: [
+                    string(name: 'SERVICE', value: env.SERVICE),
+                    string(name: 'IMAGE_TAG', value: env.IMAGE_TAG),
+                    string(name: 'ENVIRONMENT', value: 'sit-01'),
+                    string(name: 'TARGET', value: params.PUSH_TO_ECR ? 'eks' : 'local')
+                ]
             }
         }
     }
