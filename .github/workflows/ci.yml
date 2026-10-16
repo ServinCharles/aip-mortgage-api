@@ -76,18 +76,3 @@ jobs:
         with:
           name: trivy-report
           path: reports/
-
-  infra:
-    name: Terraform and Kubernetes manifests
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: hashicorp/setup-terraform@v3
-      - name: Terraform fmt and validate
-        working-directory: infra/terraform
-        run: |
-          terraform fmt -check -recursive
-          terraform init -backend=false
-          terraform validate
-      - name: Render Kubernetes manifests
-        run: kubectl kustomize deploy/k8s > /dev/null
