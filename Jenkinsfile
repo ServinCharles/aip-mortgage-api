@@ -54,17 +54,19 @@ pipeline {
 
         stage('Build & Unit Test') {
             steps {
-                // Runs as the Jenkins user so the workspace doesn't fill up with root-owned files
+                // NuGet needs root inside the SDK container; the files are handed back to the
+                // Jenkins user afterwards so the workspace can be cleaned up
                 sh '''
                     rm -rf TestResults
-                    docker run --rm --user "$(id -u):$(id -g)" --tmpfs /tmp \
-                      -e HOME=/tmp -e DOTNET_CLI_HOME=/tmp -e NUGET_PACKAGES=/tmp/nuget \
-                      -v "$WORKSPACE":/src -w /src "$DOTNET_SDK_IMAGE" \
-                      dotnet test tests/AipApi.Tests -c Release \
-                        --logger "trx;LogFileName=unit-tests.trx" \
-                        --logger "junit;LogFilePath=/src/TestResults/junit/unit-tests.xml" \
-                        --collect:"XPlat Code Coverage;Format=cobertura,opencover" \
-                        --results-directory /src/TestResults
+                    docker run --rm -e OWNER="$(id -u):$(id -g)" \
+                      -v "$WORKSPACE":/src -w /src "$DOTNET_SDK_IMAGE" bash -ceu '
+                        trap "chown -R $OWNER /src" EXIT
+                        dotnet test tests/AipApi.Tests -c Release \
+                          --logger "trx;LogFileName=unit-tests.trx" \
+                          --logger "junit;LogFilePath=/src/TestResults/junit/unit-tests.xml" \
+                          --collect:"XPlat Code Coverage;Format=cobertura,opencover" \
+                          --results-directory /src/TestResults
+                      '
                 '''
             }
             post {

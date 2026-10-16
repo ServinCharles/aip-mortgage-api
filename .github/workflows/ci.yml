@@ -19,14 +19,15 @@ jobs:
         shell: bash
         run: |
           set -o pipefail
-          docker run --rm --user "$(id -u):$(id -g)" --tmpfs /tmp \
-            -e HOME=/tmp -e DOTNET_CLI_HOME=/tmp -e NUGET_PACKAGES=/tmp/nuget \
-            -v "$PWD":/src -w /src mcr.microsoft.com/dotnet/sdk:8.0 \
-            dotnet test tests/AipApi.Tests -c Release \
-              --logger "trx;LogFileName=unit-tests.trx" \
-              --logger "junit;LogFilePath=/src/TestResults/junit/unit-tests.xml" \
-              --collect:"XPlat Code Coverage;Format=cobertura,opencover" \
-              --results-directory /src/TestResults 2>&1 | tee test-output.log
+          docker run --rm -e OWNER="$(id -u):$(id -g)" \
+            -v "$PWD":/src -w /src mcr.microsoft.com/dotnet/sdk:8.0 bash -ceu '
+              trap "chown -R $OWNER /src" EXIT
+              dotnet test tests/AipApi.Tests -c Release \
+                --logger "trx;LogFileName=unit-tests.trx" \
+                --logger "junit;LogFilePath=/src/TestResults/junit/unit-tests.xml" \
+                --collect:"XPlat Code Coverage;Format=cobertura,opencover" \
+                --results-directory /src/TestResults
+            ' 2>&1 | tee test-output.log
       - name: Show test errors
         if: failure()
         run: grep -iE "error|fail|exception" test-output.log | head -20 | sed 's/^/::error::/'
