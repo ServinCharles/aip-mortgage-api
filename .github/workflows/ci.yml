@@ -19,7 +19,7 @@ jobs:
         shell: bash
         run: |
           set -o pipefail
-          docker run --rm --user "$(id -u):$(id -g)" \
+          docker run --rm --user "$(id -u):$(id -g)" --tmpfs /tmp \
             -e HOME=/tmp -e DOTNET_CLI_HOME=/tmp -e NUGET_PACKAGES=/tmp/nuget \
             -v "$PWD":/src -w /src mcr.microsoft.com/dotnet/sdk:8.0 \
             dotnet test tests/AipApi.Tests -c Release \

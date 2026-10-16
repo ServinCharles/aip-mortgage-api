@@ -57,7 +57,7 @@ pipeline {
                 // Runs as the Jenkins user so the workspace doesn't fill up with root-owned files
                 sh '''
                     rm -rf TestResults
-                    docker run --rm --user "$(id -u):$(id -g)" \
+                    docker run --rm --user "$(id -u):$(id -g)" --tmpfs /tmp \
                       -e HOME=/tmp -e DOTNET_CLI_HOME=/tmp -e NUGET_PACKAGES=/tmp/nuget \
                       -v "$WORKSPACE":/src -w /src "$DOTNET_SDK_IMAGE" \
                       dotnet test tests/AipApi.Tests -c Release \
