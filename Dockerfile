@@ -1,6 +1,6 @@
 # aip-api: .NET 8 microservice for Mortgage Agreement in Principle (AIP)
 # Targets:
-#   runtime  (default)  small, non-root image deployed to EKS
+#   runtime  (default)  small, non-root, chiseled (distroless) image deployed to EKS
 #   coverage            runs the API under dotnet-coverage so E2E/API tests produce code coverage
 
 # The SDK stage runs on the build machine's own CPU and cross-compiles for the target,
@@ -24,8 +24,10 @@ EXPOSE 8080
 STOPSIGNAL SIGINT
 ENTRYPOINT ["dotnet-coverage", "collect", "--output", "/coverage/aip-api.e2e.cobertura.xml", "--output-format", "cobertura", "dotnet AipApi.dll"]
 
-# Runtime image (last stage, so it is the default build target)
-FROM mcr.microsoft.com/dotnet/aspnet:8.0 AS runtime
+# Runtime image (last stage, so it is the default build target).
+# Ubuntu "chiseled" image: no shell, no package manager, only what .NET needs to run,
+# so far fewer packages that can carry CVEs into the image scan.
+FROM mcr.microsoft.com/dotnet/aspnet:8.0-noble-chiseled AS runtime
 WORKDIR /app
 COPY --from=build /app .
 ENV ASPNETCORE_HTTP_PORTS=8080
