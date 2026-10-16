@@ -16,7 +16,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Unit and endpoint tests (same command as Jenkins, in the .NET SDK container)
+        shell: bash
         run: |
+          set -o pipefail
           docker run --rm --user "$(id -u):$(id -g)" \
             -e HOME=/tmp -e DOTNET_CLI_HOME=/tmp -e NUGET_PACKAGES=/tmp/nuget \
             -v "$PWD":/src -w /src mcr.microsoft.com/dotnet/sdk:8.0 \
@@ -24,7 +26,10 @@ jobs:
               --logger "trx;LogFileName=unit-tests.trx" \
               --logger "junit;LogFilePath=/src/TestResults/junit/unit-tests.xml" \
               --collect:"XPlat Code Coverage;Format=cobertura,opencover" \
-              --results-directory /src/TestResults
+              --results-directory /src/TestResults 2>&1 | tee test-output.log
+      - name: Show test errors
+        if: failure()
+        run: grep -iE "error|fail|exception" test-output.log | head -20 | sed 's/^/::error::/'
       - name: Check JUnit and coverage reports exist
         run: |
           test -s TestResults/junit/unit-tests.xml
@@ -61,6 +66,10 @@ jobs:
           TRIVY="docker run --rm -v /var/run/docker.sock:/var/run/docker.sock -v trivy-cache:/root/.cache/ -v $PWD/reports:/reports $TRIVY_IMAGE"
           $TRIVY image --no-progress --format json --output /reports/trivy-aip-api.json aip-api:ci
           $TRIVY image --no-progress --exit-code 1 --severity HIGH,CRITICAL --ignore-unfixed aip-api:ci
+      - name: Summarise vulnerabilities
+        if: failure()
+        run: |
+          jq -r '.Results[]? | .Target as $t | .Vulnerabilities[]? | select(.Severity=="HIGH" or .Severity=="CRITICAL") | select(.FixedVersion != null and .FixedVersion != "") | "::error title=\(.Severity) \(.VulnerabilityID)::\($t): \(.PkgName) \(.InstalledVersion) -> fix \(.FixedVersion)"' reports/*.json | sort -u | head -40
       - uses: actions/upload-artifact@v4
         if: always()
         with:
