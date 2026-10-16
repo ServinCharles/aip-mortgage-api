@@ -12,7 +12,7 @@ public sealed record AipDecision(
     double LoanToIncomeRatio,
     long MonthlyAffordability);
 
-public sealed record BorrowingPower(
+public sealed record BorrowingPowerResult(
     long BorrowingPower,
     long MaxLoan,
     double AnnualIncome,
@@ -87,7 +87,7 @@ public sealed class AipDecisionService
             JsRound((monthlyIncome - input.MonthlyCommitments) / 200));
     }
 
-    public static (BorrowingPower? Result, ApiError? Error) CalculateBorrowingPower(JsonElement body)
+    public static (BorrowingPowerResult? Result, ApiError? Error) CalculateBorrowingPower(JsonElement body)
     {
         if (!body.TryGetProperty("annualIncome", out var income) || IsFalsy(income))
         {
@@ -104,7 +104,7 @@ public sealed class AipDecisionService
         var borrowingPower = annualIncome * IncomeMultiple;
         var maxLoan = borrowingPower - (commitments * 12);
 
-        return (new BorrowingPower(
+        return (new BorrowingPowerResult(
             JsRound(borrowingPower),
             JsRound(Math.Max(0, maxLoan)),
             annualIncome,
