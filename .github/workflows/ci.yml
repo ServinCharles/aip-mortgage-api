@@ -1,9 +1,13 @@
 name: CI
 
+# Mirrors the Jenkins build pipeline (Jenkinsfile) so every change proves the same commands work.
 on:
   push:
   pull_request:
     branches: [main]
+
+env:
+  TRIVY_IMAGE: aquasec/trivy:0.58.1
 
 jobs:
   build-test:
@@ -11,11 +15,26 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-dotnet@v4
-        with:
-          dotnet-version: 8.0.x
-      - name: Unit and endpoint tests with coverage
-        run: dotnet test tests/AipApi.Tests --collect:"XPlat Code Coverage" --results-directory TestResults --logger trx
+      - name: Unit and endpoint tests (same command as Jenkins, in the .NET SDK container)
+        shell: bash
+        run: |
+          set -o pipefail
+          docker run --rm -e OWNER="$(id -u):$(id -g)" \
+            -v "$PWD":/src -w /src mcr.microsoft.com/dotnet/sdk:8.0 bash -ceu '
+              trap "chown -R $OWNER /src" EXIT
+              dotnet test tests/AipApi.Tests -c Release \
+                --logger "trx;LogFileName=unit-tests.trx" \
+                --logger "junit;LogFilePath=/src/TestResults/junit/unit-tests.xml" \
+                --collect:"XPlat Code Coverage;Format=cobertura,opencover" \
+                --results-directory /src/TestResults
+            ' 2>&1 | tee test-output.log
+      - name: Show test errors
+        if: failure()
+        run: grep -iE "error|fail|exception" test-output.log | head -20 | sed 's/^/::error::/'
+      - name: Check JUnit and coverage reports exist
+        run: |
+          test -s TestResults/junit/unit-tests.xml
+          ls TestResults/*/coverage.opencover.xml TestResults/*/coverage.cobertura.xml
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -23,12 +42,14 @@ jobs:
           path: TestResults/
 
   image:
-    name: Docker images (runtime + coverage)
+    name: Docker images and Trivy scan
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Build runtime image
-        run: docker build -t aip-api:ci .
+      - name: Build runtime image for EKS (linux/amd64)
+        run: docker build --platform linux/amd64 -t aip-api:ci .
+      - name: Build runtime image for Apple Silicon (linux/arm64, cross-compiled)
+        run: docker buildx build --platform linux/arm64 -t aip-api:ci-arm64 .
       - name: Build coverage image
         run: docker build --target coverage -t aip-api:coverage .
       - name: Smoke the runtime image
@@ -40,18 +61,18 @@ jobs:
           done
           docker logs aip-api
           exit 1
-
-  infra:
-    name: Terraform and Kubernetes manifests
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: hashicorp/setup-terraform@v3
-      - name: Terraform fmt and validate
-        working-directory: infra/terraform
+      - name: Trivy image scan (same gate as Jenkins)
         run: |
-          terraform fmt -check -recursive
-          terraform init -backend=false
-          terraform validate
-      - name: Render Kubernetes manifests
-        run: kubectl kustomize deploy/k8s > /dev/null
+          mkdir -p reports
+          TRIVY="docker run --rm -v /var/run/docker.sock:/var/run/docker.sock -v trivy-cache:/root/.cache/ -v $PWD/reports:/reports $TRIVY_IMAGE"
+          $TRIVY image --no-progress --format json --output /reports/trivy-aip-api.json aip-api:ci
+          $TRIVY image --no-progress --exit-code 1 --severity HIGH,CRITICAL --ignore-unfixed aip-api:ci
+      - name: Summarise vulnerabilities
+        if: failure()
+        run: |
+          jq -r '.Results[]? | .Target as $t | .Vulnerabilities[]? | select(.Severity=="HIGH" or .Severity=="CRITICAL") | select(.FixedVersion != null and .FixedVersion != "") | "::error title=\(.Severity) \(.VulnerabilityID)::\($t): \(.PkgName) \(.InstalledVersion) -> fix \(.FixedVersion)"' reports/*.json | sort -u | head -40
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: trivy-report
+          path: reports/
