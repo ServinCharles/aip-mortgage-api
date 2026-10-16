@@ -20,7 +20,7 @@ This repo holds the code and the Jenkins **build** pipeline. Infrastructure and 
 | POST | `/api/mortgages/dip/calculate-borrowing-power` | Affordability calculator |
 
 ```bash
-curl -X POST http://localhost:8080/api/mortgages/dip/decision \
+curl -X POST http://localhost:5080/api/mortgages/dip/decision \
   -H "Content-Type: application/json" \
   -d '{"annualIncome": 45000, "loanAmount": 150000, "existingCommitments": 0}'
 ```
@@ -29,12 +29,14 @@ Decision rules: monthly commitments above 40% of monthly income are **Declined**
 
 ## Run locally
 
+Locally the API uses port **5080**, because 8080 is Jenkins and 3000 is the test framework's mock server.
+
 ```bash
-dotnet run --project src/AipApi --urls http://localhost:8080
+dotnet run --project src/AipApi --urls http://localhost:5080
 dotnet test tests/AipApi.Tests --collect:"XPlat Code Coverage"
 ```
 
-Or in Docker: `docker build -t aip-api . && docker run -p 8080:8080 aip-api`
+Or in Docker: `docker build -t aip-api . && docker run -p 5080:8080 aip-api`
 
 ## Code coverage from end-to-end tests
 
@@ -42,7 +44,7 @@ The `coverage` Docker target runs the API under `dotnet-coverage`, so the report
 
 ```bash
 docker build --target coverage -t aip-api:coverage .
-docker run -d --name aip-api -p 8080:8080 -v "$PWD/coverage:/coverage" aip-api:coverage
+docker run -d --name aip-api -p 5080:8080 -v "$PWD/coverage:/coverage" aip-api:coverage
 # ...run the Agentic-qa-demo suites...
 docker stop aip-api        # writes coverage/aip-api.e2e.cobertura.xml
 ```
