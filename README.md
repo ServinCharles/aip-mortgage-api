@@ -18,6 +18,7 @@ This repo holds the code and the Jenkins **build** pipeline. Infrastructure and 
 | GET | `/health` | Kubernetes liveness/readiness probe |
 | POST | `/api/mortgages/dip/decision` | AIP decision: Accepted / Referred / Declined |
 | POST | `/api/mortgages/dip/calculate-borrowing-power` | Affordability calculator |
+| GET | `/api/applications/{applicationId}` | A saved application (only when persistence is on, otherwise 404) |
 
 ```bash
 curl -X POST http://localhost:5080/api/mortgages/dip/decision \
@@ -26,6 +27,29 @@ curl -X POST http://localhost:5080/api/mortgages/dip/decision \
 ```
 
 Decision rules: monthly commitments above 40% of monthly income are **Declined**; otherwise a loan above 4.5x income is **Referred**; otherwise **Accepted**.
+
+Every decision response includes an `applicationId`, e.g. `AIP-20261019-7F3C2A9B`, alongside the original fields.
+
+## Saving applications and decision events (feature flag)
+
+`PERSISTENCE_ENABLED` switches on saving each application to **MongoDB** and publishing an `AipDecisionMade` event to **Kafka** (read by [aip-audit-service](https://github.com/ServinCharles/aip-audit-service)). It is **off by default**, so the API runs exactly as before wherever MongoDB and Kafka don't exist (locally, CI, sit-02).
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `PERSISTENCE_ENABLED` | `false` | The switch |
+| `MONGODB_URI` | `mongodb://localhost:27017` | MongoDB connection |
+| `MONGODB_DATABASE` | `aip` | Database; applications go in the `applications` collection |
+| `KAFKA_BOOTSTRAP_SERVERS` | `localhost:9092` | Kafka broker |
+| `KAFKA_TOPIC` | `aip.decisions` | Topic for decision events, keyed by `applicationId` |
+| `APPLICATION_RETENTION_DAYS` | `0` (keep) | TTL index so test environments clean up old applications |
+
+- A MongoDB or Kafka failure never blocks a decision: it is logged, and the customer still gets an answer.
+- Events carry IDs and decision figures only, never income.
+- Event contract (schemaVersion 1): `eventId`, `eventType` (`AipDecisionMade`), `schemaVersion`, `occurredAt`, `applicationId`, `decision`, `loanAmount`, `maxBorrowing`.
+
+```bash
+PERSISTENCE_ENABLED=true dotnet run --project src/AipApi --urls http://localhost:5080
+```
 
 ## Run locally
 
