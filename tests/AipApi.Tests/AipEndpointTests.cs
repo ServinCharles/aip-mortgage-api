@@ -37,6 +37,37 @@ public class AipEndpointTests(WebApplicationFactory<Program> factory) : IClassFi
     }
 
     [Fact]
+    public async Task Decision_IncludesAnApplicationId()
+    {
+        var response = await _client.PostAsJsonAsync("/api/mortgages/dip/decision",
+            new { annualIncome = 45000, loanAmount = 150000, existingCommitments = 0 });
+
+        var body = await response.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.Matches("^AIP-[0-9]{8}-[0-9A-F]{8}$", body.GetProperty("applicationId").GetString());
+    }
+
+    [Fact]
+    public async Task GetApplication_PersistenceOff_Returns404()
+    {
+        // Persistence is off by default, so nothing is saved and nothing can be found
+        var decision = await _client.PostAsJsonAsync("/api/mortgages/dip/decision",
+            new { annualIncome = 45000, loanAmount = 150000 });
+        var applicationId = (await decision.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("applicationId").GetString();
+
+        var response = await _client.GetAsync($"/api/applications/{applicationId}");
+
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task GetApplication_InvalidId_Returns400()
+    {
+        var response = await _client.GetAsync("/api/applications/not-an-id");
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+    }
+
+    [Fact]
     public async Task Decision_InvalidJson_Returns400()
     {
         var response = await _client.PostAsync("/api/mortgages/dip/decision",
