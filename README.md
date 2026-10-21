@@ -90,7 +90,7 @@ Checkout → Build & Unit Test → SonarQube → Snyk → Docker Build → Image
 | Build & Unit Test | `dotnet test` in the .NET SDK container, JUnit results + Cobertura/OpenCover coverage | any test fails |
 | SonarQube | .NET scanner with coverage, waits for the quality gate | quality gate fails |
 | Snyk | dependency (SCA) scan of the project | a high or critical vulnerability is found |
-| Docker Build | runtime image, cross-compiled for `PLATFORM` (default `linux/amd64` for EKS) | the image doesn't build |
+| Docker Build | runtime image, cross-compiled for `PLATFORM` (default `auto`: `linux/amd64` when pushing to ECR for EKS, otherwise the local Docker engine architecture, `linux/arm64` on Apple Silicon) | the image doesn't build |
 | Image Scan | Trivy (default) or Twistlock `twistcli`, JSON report archived | a fixable HIGH/CRITICAL CVE is found |
 | Push to ECR | pushes the scanned image, archives `ecr-image.properties` for the deploy pipeline | the push fails |
 
